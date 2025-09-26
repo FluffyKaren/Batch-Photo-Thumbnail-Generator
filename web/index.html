@@ -25,9 +25,19 @@
     input[type="file"] { display:none; }
     .pill { border:1px solid var(--ce-border); padding:8px 12px; border-radius:999px; cursor:pointer; }
     .pill.active { background: var(--ce-black); color: var(--ce-white); border-color: var(--ce-black); }
+
+    /* Drag–drop */
+    .drop { margin-top: 12px; padding: 20px; border: 2px dashed var(--ce-border); border-radius: 16px; text-align: center; background: var(--ce-surface); }
+    .drop.highlight { border-color: var(--ce-purple); box-shadow: 0 0 0 4px rgba(139,92,246,0.08); }
+
+    /* Toasts */
+    #toasts { position: fixed; z-index: 9999; left: 50%; transform: translateX(-50%); top: 12px; display: flex; flex-direction: column; gap: 8px; }
+    .toast { background: var(--ce-surface); border:1px solid var(--ce-border); box-shadow: 0 6px 24px rgba(0,0,0,0.08); padding: 10px 12px; border-radius: 12px; font-size: .95rem; }
   </style>
 </head>
 <body>
+  <div id="toasts" aria-live="polite"></div>
+
   <div class="wrap">
     <header>
       <img src="./assets/logo.png" alt="Logo" onerror="this.style.display='none'"/>
@@ -41,6 +51,10 @@
           Pick images
         </label>
         <div id="count" class="muted">No files selected</div>
+      </div>
+
+      <div class="drop" id="drop">
+        Drag & drop images here (or tap Pick images)
       </div>
 
       <div style="height:12px"></div>
@@ -58,7 +72,8 @@
           <label><input id="square" type="checkbox"> Make square (center-crop)</label>
           <label>Format
             <select id="format">
-              <option value="jpg" selected>JPG</option>
+              <option value="auto" selected>Auto (PNG if alpha)</option>
+              <option value="jpg">JPG</option>
               <option value="png">PNG</option>
             </select>
           </label>
