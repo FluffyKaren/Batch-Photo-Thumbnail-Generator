@@ -2,16 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CerclEnclume — Thumbnail Generator</title>
-  <link rel="manifest" href="./manifest.webmanifest">
-  <link rel="icon" href="./assets/logo.png">
-  <link rel="stylesheet" href="./assets/brand-tokens.css">
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <!-- Use an empty data URL to avoid favicon 404 without shipping a file -->
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./assets/brand-tokens.css" />
   <style>
     html, body { margin:0; padding:0; background:var(--ce-bg); color:var(--ce-ink); font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
     header { display:flex; align-items:center; gap:12px; margin: 12px 0 8px; }
-    header img { width: 32px; height: 32px; border-radius: 8px; }
     h1 { font-size: 1.25rem; margin: 0; }
     .card { background: var(--ce-surface); border: 1px solid var(--ce-border); border-radius: 16px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
     .row { display:flex; gap: 12px; align-items: center; flex-wrap: wrap; }
@@ -28,12 +28,8 @@
     input[type="file"] { display:none; }
     .pill { border:1px solid var(--ce-border); padding:8px 12px; border-radius:999px; cursor:pointer; }
     .pill.active { background: var(--ce-black); color: var(--ce-white); border-color: var(--ce-black); }
-
-    /* Drag–drop */
     .drop { margin-top: 12px; padding: 20px; border: 2px dashed var(--ce-border); border-radius: 16px; text-align: center; background: var(--ce-surface); }
     .drop.highlight { border-color: var(--ce-purple); box-shadow: 0 0 0 4px rgba(139,92,246,0.08); }
-
-    /* Toasts */
     #toasts { position: fixed; z-index: 9999; left: 50%; transform: translateX(-50%); top: 12px; display: flex; flex-direction: column; gap: 8px; }
     .toast { background: var(--ce-surface); border:1px solid var(--ce-border); box-shadow: 0 6px 24px rgba(0,0,0,0.08); padding: 10px 12px; border-radius: 12px; font-size: .95rem; }
   </style>
@@ -43,7 +39,6 @@
 
   <div class="wrap">
     <header>
-      <img src="./assets/logo.png" alt="Logo" onerror="this.style.display='none'"/>
       <h1>Batch Photo Thumbnail Generator</h1>
     </header>
 

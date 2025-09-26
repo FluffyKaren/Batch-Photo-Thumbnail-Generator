@@ -29,3 +29,9 @@ Added local dev guide and GitHub Pages workflow.
 - Desktop polish: drag–drop of folders (Chrome/Edge).
 - File System Access: “Save to Folder” and “Open saved folder” UX.
 - Keeps ZIP download as fallback/default for all browsers.
+
+## [0.1.7] - 2025-09-27
+- Removed logo/favicon dependencies; no binaries required.
+- Added empty data-URL favicon to avoid 404.
+- Cleared manifest icons array to prevent missing asset fetch.
+- Bumped service worker cache for a clean reload.
