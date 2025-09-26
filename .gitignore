@@ -1,0 +1,13 @@
+# Node/web
+node_modules/
+dist/
+*.log
+
+# Python (shared outer shell compatibility)
+.venv/
+__pycache__/
+*.pyc
+
+# OS/editor
+.DS_Store
+Thumbs.db
