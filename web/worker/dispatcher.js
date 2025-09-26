@@ -1,10 +1,9 @@
-import { makeZip } from "./zipper-worker.js";
+import { makeZip, buildFileList } from "./zipper-worker.js";
 
 const MAX_WORKERS = (navigator.hardwareConcurrency && navigator.hardwareConcurrency >= 8) ? 6 : 4;
 const WORKERS = Math.max(2, Math.min(MAX_WORKERS, navigator.hardwareConcurrency || 2));
 
 export async function runBatch(files, opts, {signal, onProgress}) {
-  // Fallback if Workers not available (very old/limited browsers)
   const canWorkers = typeof Worker !== "undefined";
   if (!canWorkers) {
     return runSequentialOnMain(files, opts, {signal, onProgress});
@@ -36,8 +35,9 @@ export async function runBatch(files, opts, {signal, onProgress}) {
   workers.forEach(w=>w.terminate());
 
   const { zipBlob, manifestCsv } = await makeZip(results);
+  const filesForFolder = await buildFileList(results, manifestCsv);
   const failures = results.filter(r => !r.ok).map(r => ({ name: r.name, error: r.error || "Unknown error" }));
-  return { zipBlob, manifestCsv, failures };
+  return { zipBlob, manifestCsv, failures, filesForFolder };
 }
 
 function callWorker(worker, msg) {
@@ -55,7 +55,6 @@ function callWorker(worker, msg) {
   });
 }
 
-// Minimal sequential fallback (main thread). Slower, but keeps the app usable.
 async function runSequentialOnMain(files, opts, {signal, onProgress}) {
   const results = [];
   let done = 0;
@@ -63,7 +62,7 @@ async function runSequentialOnMain(files, opts, {signal, onProgress}) {
     if (signal.aborted) break;
     try {
       const arrayBuf = await f.arrayBuffer();
-      const mod = await import("./img-worker.js"); // uses same code paths
+      const mod = await import("./img-worker.js");
       const res = await mod.processOne(arrayBuf, f.name, opts, f.size);
       results.push(res);
     } catch (err) {
@@ -73,6 +72,7 @@ async function runSequentialOnMain(files, opts, {signal, onProgress}) {
     onProgress?.(done, files.length);
   }
   const { zipBlob, manifestCsv } = await makeZip(results);
+  const filesForFolder = await buildFileList(results, manifestCsv);
   const failures = results.filter(r => !r.ok).map(r => ({ name: r.name, error: r.error || "Unknown error" }));
-  return { zipBlob, manifestCsv, failures };
+  return { zipBlob, manifestCsv, failures, filesForFolder };
 }

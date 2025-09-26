@@ -24,16 +24,18 @@ export async function makeZip(results) {
   return { zipBlob, manifestCsv };
 }
 
-function quote(s) {
-  return `"${String(s).replace(/"/g, '""')}"`;
-}
-function quoteOrEmpty(s) {
-  return s ? quote(s) : "";
+// Provide a list of files for folder save UX
+export async function buildFileList(results, manifestCsv) {
+  const ok = results.filter(r => r.ok);
+  const list = [{ name: "manifest.csv", data: new TextEncoder().encode(manifestCsv) }];
+  for (const r of ok) list.push({ name: `thumbs/${r.thumbName}`, data: r.data });
+  return list;
 }
 
+function quote(s) { return `"${String(s).replace(/"/g, '""')}"`; }
+function quoteOrEmpty(s) { return s ? quote(s) : ""; }
+
 async function createZip(entries) {
-  // Store method ZIP for portability. Modern browsers handle CompressionStream,
-  // but we keep simple and small here.
   const { blob, writer } = makeBlobWriter();
   for (const e of entries) await writeZipEntry(writer, e.name, e.data);
   await finishZip(writer);

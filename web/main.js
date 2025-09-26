@@ -1,9 +1,12 @@
 import { runBatch } from "./worker/dispatcher.js";
-import { saveZip } from "./zipper.js";
+import { saveZip, saveFilesToFolder, reOpenFolder } from "./zipper.js";
 
 const fileInput = document.getElementById("fileInput");
 const goBtn = document.getElementById("go");
 const stopBtn = document.getElementById("stop");
+const saveZipBtn = document.getElementById("saveZip");
+const saveFolderBtn = document.getElementById("saveFolder");
+const openFolderBtn = document.getElementById("openFolder");
 const countEl = document.getElementById("count");
 const statusEl = document.getElementById("status");
 const barEl = document.getElementById("bar");
@@ -16,6 +19,7 @@ const toasts = document.getElementById("toasts");
 
 let files = [];
 let controller = null;
+let lastFilesForFolder = null;
 
 const MAX_FILES = 60;
 
@@ -36,17 +40,17 @@ document.getElementById("customSize").addEventListener("input", ()=>{
 });
 
 document.getElementById("format").addEventListener("change", (e)=>{
-  // hide quality when PNG or Auto (PNG chosen)
   qwrap.style.display = e.target.value === "jpg" ? "flex" : "none";
 });
 
 fileInput.addEventListener("change", ()=>{
+  // If user picked a folder via webkitdirectory, treat like files list
   setFiles(Array.from(fileInput.files || []));
 });
 
 document.getElementById("wmToggle").addEventListener("change", update);
 
-// Drag–drop handlers
+// Drag–drop folder & files
 ;["dragenter","dragover"].forEach(ev=>{
   drop.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); drop.classList.add("highlight"); });
   document.addEventListener(ev, (e)=>{ e.preventDefault(); });
@@ -54,11 +58,35 @@ document.getElementById("wmToggle").addEventListener("change", update);
 ;["dragleave","drop"].forEach(ev=>{
   drop.addEventListener(ev, (e)=>{ e.preventDefault(); e.stopPropagation(); drop.classList.remove("highlight"); });
 });
-drop.addEventListener("drop", (e)=>{
-  const fl = Array.from(e.dataTransfer?.files || []).filter(f=>f && f.type?.startsWith("image/") || /\.(jpe?g|png|webp|heic)$/i.test(f.name));
-  if (fl.length === 0) { toast("No images detected in drop."); return; }
-  setFiles((files||[]).concat(fl));
+drop.addEventListener("drop", async (e)=>{
+  const dt = e.dataTransfer;
+  if (!dt) return;
+  const entries = dt.items && dt.items[0] && "webkitGetAsEntry" in dt.items[0] ? Array.from(dt.items).map(i=>i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean) : null;
+  if (entries && entries.length) {
+    const gathered = [];
+    for (const entry of entries) {
+      await walkEntry(entry, gathered);
+    }
+    setFiles(gathered);
+  } else {
+    const fl = Array.from(dt.files || []).filter(f=>f && (f.type?.startsWith("image/") || /\.(jpe?g|png|webp|heic)$/i.test(f.name)));
+    if (fl.length === 0) { toast("No images detected in drop."); return; }
+    setFiles((files||[]).concat(fl));
+  }
 });
+
+async function walkEntry(entry, out) {
+  if (entry.isFile) {
+    await new Promise((res)=> entry.file((f)=>{ out.push(f); res(); }, ()=>res()));
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    let batch;
+    do {
+      batch = await new Promise((res)=> reader.readEntries(res, ()=>res([])));
+      for (const e of batch) await walkEntry(e, out);
+    } while (batch.length);
+  }
+}
 
 function setFiles(incoming) {
   const normalized = normalizeFiles(incoming);
@@ -67,8 +95,12 @@ function setFiles(incoming) {
   countEl.textContent = files.length ? `${files.length} files selected` : "No files selected";
   goBtn.disabled = files.length === 0;
 
+  saveZipBtn.disabled = true;
+  saveFolderBtn.disabled = true;
+  openFolderBtn.disabled = true;
+
   if (heic.length) {
-    toast(`Some HEIC images were skipped (not supported by many browsers). Convert first: ${heic.slice(0,3).map(f=>f.name).join(", ")}${heic.length>3?"…":""}`);
+    toast(`Some HEIC images were skipped (browser support varies). Convert first: ${heic.slice(0,3).map(f=>f.name).join(", ")}${heic.length>3?"…":""}`);
   }
   if (tooMany) {
     toast(`Capped to ${MAX_FILES} files for stability. You can run another batch after this.`);
@@ -76,7 +108,6 @@ function setFiles(incoming) {
 }
 
 function normalizeFiles(arr) {
-  // De-dupe by name+size to avoid accidental duplicates
   const seen = new Set();
   const out = [];
   for (const f of arr) {
@@ -95,7 +126,7 @@ function partitionFiles(arr) {
   for (const f of arr) {
     const isHeic = /image\/heic/i.test(f.type) || /\.heic$/i.test(f.name);
     if (isHeic) heic.push(f);
-    else usable.push(f);
+    else if (f.type?.startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(f.name)) usable.push(f);
   }
   return { usable, heic, tooMany: arr.length > MAX_FILES };
 }
@@ -135,15 +166,22 @@ goBtn.addEventListener("click", async ()=>{
 
   try {
     const opts = getOpts();
-    const {zipBlob, manifestCsv, failures} = await runBatch(files, opts, {
+    const {zipBlob, manifestCsv, failures, filesForFolder} = await runBatch(files, opts, {
       signal: controller.signal,
       onProgress: (done, total)=> {
         statusEl.textContent = `Processing ${done}/${total}`;
         barEl.style.width = `${Math.round((done/total)*100)}%`;
       }
     });
-    await saveZip(zipBlob, "thumbnails.zip");
-    statusEl.textContent = `Done. ${files.length} files processed.`;
+
+    // Enable save buttons with fresh outputs
+    lastFilesForFolder = filesForFolder;
+    saveZipBtn.disabled = false;
+    saveFolderBtn.disabled = !("showDirectoryPicker" in window);
+    openFolderBtn.disabled = !("showDirectoryPicker" in window);
+
+    statusEl.textContent = `Done. ${files.length} files processed. Choose how to save.`;
+
     if (failures.length) {
       errorCount.textContent = String(failures.length);
       errorList.innerHTML = failures.map(f => `<li><strong>${escapeHtml(f.name)}</strong> — ${escapeHtml(f.error)}</li>`).join("");
@@ -152,6 +190,21 @@ goBtn.addEventListener("click", async ()=>{
     } else {
       toast("All images processed successfully.");
     }
+
+    // Default: still offer ZIP immediately on click
+    saveZipBtn.onclick = async ()=> {
+      await saveZip(zipBlob, "thumbnails.zip");
+      toast("ZIP downloaded.");
+    };
+    saveFolderBtn.onclick = async ()=> {
+      if (!lastFilesForFolder) return;
+      const ok = await saveFilesToFolder(lastFilesForFolder, "thumbs");
+      if (ok) toast("Saved to selected folder.");
+    };
+    openFolderBtn.onclick = async ()=> {
+      await reOpenFolder();
+    };
+
   } catch (e) {
     if (e.name === "AbortError") {
       statusEl.textContent = "Stopped.";
@@ -172,7 +225,7 @@ stopBtn.addEventListener("click", ()=>{
 });
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 }
 
 function toast(msg, ms=3500) {

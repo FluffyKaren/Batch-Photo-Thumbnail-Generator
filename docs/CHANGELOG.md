@@ -24,3 +24,8 @@ Added local dev guide and GitHub Pages workflow.
 - HEIC detection: friendly prompt + skip un-decodable files.
 - Export auto-switch: “Auto (PNG if alpha)”.
 - Stability: safer worker fallback, bounds checks, better error handling.
+
+## [0.1.4] - 2025-09-27
+- Desktop polish: drag–drop of folders (Chrome/Edge).
+- File System Access: “Save to Folder” and “Open saved folder” UX.
+- Keeps ZIP download as fallback/default for all browsers.
