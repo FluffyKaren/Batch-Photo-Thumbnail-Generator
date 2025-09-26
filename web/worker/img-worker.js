@@ -4,7 +4,6 @@ import { parseExifMeta } from "./exif.js";
 self.onmessage = async (e) => {
   const { arrayBuf, name, opts, sizeBytes } = e.data;
   const out = await processOne(arrayBuf, name, opts, sizeBytes).catch(err => ({ ok:false, name, error:String(err) }));
-  // If ok, transfer the typed array buffer to avoid copies
   if (out && out.ok && out.data && out.data.buffer) {
     self.postMessage(out, [out.data.buffer]);
   } else {
@@ -14,9 +13,10 @@ self.onmessage = async (e) => {
 
 // Exported for main-thread fallback
 export async function processOne(arrayBuf, name, opts, sizeBytes) {
+  // Decode -> orient -> resize -> toBlob
   const meta = parseExifMeta(arrayBuf);
   const blob = new Blob([arrayBuf]);
-  const bitmap = await createImageBitmap(blob);
+  const bitmap = await safeCreateImageBitmap(blob);
 
   const oriented = await orientBitmap(bitmap, meta.orientation || 1);
   const { canvas, w, h } = await resizeBitmap(oriented, opts);
@@ -31,12 +31,9 @@ export async function processOne(arrayBuf, name, opts, sizeBytes) {
 
   try { tinySharpen(canvas, 0.15); } catch {}
 
-  const outBlob = await (canvas.convertToBlob
-    ? canvas.convertToBlob({ type: outMime, quality })
-    : new Promise(r => canvas.toBlob(r, outMime, quality)));
-
-  const thumbName = makeName(name, w, h, opts.square ? "crop" : "fit", outMime);
+  const outBlob = await canvasToBlob(canvas, outMime, quality);
   const buf = await outBlob.arrayBuffer();
+  const thumbName = makeName(name, w, h, opts.square ? "crop" : "fit", outMime);
 
   return {
     ok: true,
@@ -51,11 +48,42 @@ export async function processOne(arrayBuf, name, opts, sizeBytes) {
   };
 }
 
+// More defensive createImageBitmap (works in worker or main thread)
+async function safeCreateImageBitmap(blob) {
+  try {
+    return await createImageBitmap(blob);
+  } catch (e) {
+    // Fallback: draw via OffscreenCanvas and re-create bitmap
+    const img = await blob.arrayBuffer();
+    const bitmap = await createImageBitmap(new Blob([img]));
+    return bitmap;
+  }
+}
+
+async function canvasToBlob(canvas, type, quality) {
+  // OffscreenCanvas: prefer convertToBlob
+  if (canvas.convertToBlob) {
+    return canvas.convertToBlob({ type, quality });
+  }
+  // If not available (rare), draw onto a new OffscreenCanvas/HTMLCanvas that does
+  const w = canvas.width, h = canvas.height;
+  const off = (typeof OffscreenCanvas !== "undefined") ? new OffscreenCanvas(w, h) : (()=>{ const c=document.createElement("canvas"); c.width=w; c.height=h; return c; })();
+  const ctx = off.getContext("2d");
+  ctx.drawImage(canvas, 0, 0);
+  if (off.convertToBlob) return off.convertToBlob({ type, quality });
+
+  // Very old fallback (main thread only): toDataURL → fetch
+  if (off.toDataURL) {
+    const url = off.toDataURL(type, quality);
+    const res = await fetch(url);
+    return await res.blob();
+  }
+  throw new Error("Cannot create blob from canvas in this environment.");
+}
+
 function compactCamera(make, model) {
   if (!make && !model) return null;
-  if (make && model) {
-    return model.toLowerCase().startsWith((make||"").toLowerCase()) ? model : `${make} ${model}`.trim();
-  }
+  if (make && model) return model.toLowerCase().startsWith((make||"").toLowerCase()) ? model : `${make} ${model}`.trim();
   return (make || model || null);
 }
 
@@ -71,8 +99,7 @@ async function orientBitmap(bitmap, orientation) {
   const swap = [5,6,7,8].includes(orientation);
   const cw = swap ? h : w;
   const ch = swap ? w : h;
-
-  const off = new OffscreenCanvas ? new OffscreenCanvas(cw, ch) : (()=>{ const c=document.createElement("canvas"); c.width=cw; c.height=ch; return c; })();
+  const off = (typeof OffscreenCanvas !== "undefined") ? new OffscreenCanvas(cw, ch) : (()=>{ const c=document.createElement("canvas"); c.width=cw; c.height=ch; return c; })();
   const ctx = off.getContext("2d");
   ctx.save();
   switch (orientation) {
@@ -95,7 +122,7 @@ async function resizeBitmap(bitmap, opts) {
     const s = Math.min(bitmap.width, bitmap.height);
     const sx = (bitmap.width - s)/2;
     const sy = (bitmap.height - s)/2;
-    const off = new OffscreenCanvas ? new OffscreenCanvas(long, long) : (()=>{ const c=document.createElement("canvas"); c.width=long; c.height=long; return c; })();
+    const off = (typeof OffscreenCanvas !== "undefined") ? new OffscreenCanvas(long, long) : (()=>{ const c=document.createElement("canvas"); c.width=long; c.height=long; return c; })();
     const ctx = off.getContext("2d");
     ctx.drawImage(bitmap, sx, sy, s, s, 0, 0, long, long);
     if (opts.watermark) placeWatermark(ctx, long, long, opts.watermark);
@@ -104,7 +131,7 @@ async function resizeBitmap(bitmap, opts) {
     const scale = bitmap.width >= bitmap.height ? long / bitmap.width : long / bitmap.height;
     const targetW = Math.max(1, Math.round(bitmap.width * scale));
     const targetH = Math.max(1, Math.round(bitmap.height * scale));
-    const off = new OffscreenCanvas ? new OffscreenCanvas(targetW, targetH) : (()=>{ const c=document.createElement("canvas"); c.width=targetW; c.height=targetH; return c; })();
+    const off = (typeof OffscreenCanvas !== "undefined") ? new OffscreenCanvas(targetW, targetH) : (()=>{ const c=document.createElement("canvas"); c.width=targetW; c.height=targetH; return c; })();
     const ctx = off.getContext("2d");
     ctx.drawImage(bitmap, 0, 0, targetW, targetH);
     if (opts.watermark) placeWatermark(ctx, targetW, targetH, opts.watermark);
@@ -123,11 +150,9 @@ function placeWatermark(ctx, w, h, text) {
   ctx.restore();
 }
 
-// Sample alpha existence quickly to decide PNG vs JPG in 'auto'
 async function hasAlphaSampled(canvas) {
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   const { width:w, height:h } = canvas;
-  // Sample a grid up to 64x64 points to avoid heavy reads
   const stepsX = Math.min(64, w);
   const stepsY = Math.min(64, h);
   const stepX = Math.max(1, Math.floor(w/stepsX));
@@ -135,41 +160,31 @@ async function hasAlphaSampled(canvas) {
   for (let y=0; y<h; y+=stepY) {
     const row = ctx.getImageData(0, y, w, 1).data;
     for (let x=0; x<w; x+=stepX) {
-      // alpha channel at index 3
       if (row[(x*4)+3] < 255) return true;
     }
   }
   return false;
 }
 
-// Tiny sharpen
 function tinySharpen(canvas, amount = 0.15) {
   const ctx = canvas.getContext("2d");
   const { width:w, height:h } = canvas;
-  if (w < 3 || h < 3) return; // avoid tiny images artifacts
+  if (w < 3 || h < 3) return;
   const img = ctx.getImageData(0,0,w,h);
   const src = img.data;
   const out = new Uint8ClampedArray(src.length);
-  const k = [
-    0, -1*amount, 0,
-    -1*amount, 1+4*amount, -1*amount,
-    0, -1*amount, 0
-  ];
+  const k = [0,-1*amount,0,-1*amount,1+4*amount,-1*amount,0,-1*amount,0];
   const idx = (x,y) => ((y*w)+x)*4;
   for (let y=1; y<h-1; y++) {
     for (let x=1; x<w-1; x++) {
-      const p = idx(x,y);
-      out[p+3] = src[p+3];
+      const p = idx(x,y); out[p+3] = src[p+3];
       for (let c=0; c<3; c++) {
-        let v=0, i=0;
-        for (let ky=-1; ky<=1; ky++) {
-          for (let kx=-1; kx<=1; kx++, i++) v += src[idx(x+kx,y+ky)+c] * k[i];
-        }
-        out[p+c] = v < 0 ? 0 : v > 255 ? 255 : v;
+        let v=0,i=0;
+        for (let ky=-1; ky<=1; ky++) for (let kx=-1; kx<=1; kx++,i++) v += src[idx(x+kx,y+ky)+c]*k[i];
+        out[p+c] = v<0?0:v>255?255:v;
       }
     }
   }
-  // Copy borders
   out.set(src.slice(0, w*4));
   out.set(src.slice((h-1)*w*4), (h-1)*w*4);
   for (let y=1; y<h-1; y++) {
