@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+  <title>CerclEnclume — Thumbnail Generator</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./assets/brand-tokens.css">
+  <style>
+    html, body { margin:0; padding:0; background:var(--ce-bg); color:var(--ce-ink); font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+    header { display:flex; align-items:center; gap:12px; margin: 12px 0 8px; }
+    header img { width: 32px; height: 32px; border-radius: 8px; }
+    h1 { font-size: 1.25rem; margin: 0; }
+    .card { background: var(--ce-surface); border: 1px solid var(--ce-border); border-radius: 16px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+    .row { display:flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    .btn { background: var(--ce-black); color: var(--ce-white); border: none; padding: 12px 16px; border-radius: 12px; cursor: pointer; }
+    .btn:disabled { opacity: .6; cursor: not-allowed; }
+    .muted { color: var(--ce-muted); font-size: .9rem; }
+    .progress { height: 8px; background: var(--ce-border); border-radius: 999px; overflow: hidden; }
+    .bar { height: 100%; width: 0%; background: var(--ce-purple); }
+    details { margin-top: 8px; }
+    label { display:flex; align-items:center; gap:8px; }
+    input[type="number"] { width: 100px; padding: 8px; border:1px solid var(--ce-border); border-radius:10px; }
+    input[type="file"] { display:none; }
+    .pill { border:1px solid var(--ce-border); padding:8px 12px; border-radius:999px; cursor:pointer; }
+    .pill.active { background: var(--ce-black); color: var(--ce-white); border-color: var(--ce-black); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <img src="./assets/logo.png" alt="Logo" onerror="this.style.display='none'"/>
+      <h1>Batch Photo Thumbnail Generator</h1>
+    </header>
+
+    <div class="card">
+      <div class="row">
+        <label class="btn">
+          <input id="fileInput" type="file" accept="image/*" multiple>
+          Pick images
+        </label>
+        <div id="count" class="muted">No files selected</div>
+      </div>
+
+      <div style="height:12px"></div>
+
+      <div class="row" id="presets">
+        <div class="pill" data-size="256">256px</div>
+        <div class="pill active" data-size="512">512px</div>
+        <div class="pill" data-size="1024">1024px</div>
+        <label>Custom <input id="customSize" type="number" min="64" max="4096" step="1" placeholder="px"></label>
+      </div>
+
+      <details>
+        <summary>Advanced</summary>
+        <div class="row" style="margin-top:8px">
+          <label><input id="square" type="checkbox"> Make square (center-crop)</label>
+          <label>Format
+            <select id="format">
+              <option value="jpg" selected>JPG</option>
+              <option value="png">PNG</option>
+            </select>
+          </label>
+          <label id="qwrap">Quality
+            <input id="quality" type="number" min="10" max="100" value="85">
+          </label>
+          <label><input id="wmToggle" type="checkbox"> Watermark</label>
+          <input id="wmText" type="text" placeholder="Watermark text" style="flex:1; min-width:180px">
+        </div>
+      </details>
+
+      <div style="height:12px"></div>
+
+      <div class="row">
+        <button id="go" class="btn" disabled>Generate Thumbnails</button>
+        <button id="stop" class="btn" style="background:var(--ce-red)" disabled>Stop</button>
+      </div>
+
+      <div style="height:12px"></div>
+      <div class="progress"><div id="bar" class="bar"></div></div>
+      <div id="status" class="muted" style="margin-top:6px">Ready</div>
+    </div>
+
+    <p class="muted" style="margin-top:12px">All processing happens locally in your browser. No uploads.</p>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+  <script src="./register-sw.js"></script>
+</body>
+</html>
