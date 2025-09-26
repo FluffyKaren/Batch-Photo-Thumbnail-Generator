@@ -48,6 +48,11 @@ fileInput.addEventListener("change", ()=>{
   setFiles(Array.from(fileInput.files || []));
 });
 
+const folderInput = document.getElementById("folderInput");
+folderInput.addEventListener("change", ()=>{
+  setFiles(Array.from(folderInput.files || []));
+});
+
 document.getElementById("wmToggle").addEventListener("change", update);
 
 // Drag–drop folder & files
