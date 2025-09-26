@@ -18,3 +18,9 @@ Added local dev guide and GitHub Pages workflow.
 - Manifest.csv now includes filesize_bytes, exif_camera, exif_datetime.
 - Error log drawer added to UI; shows per-file failures after run.
 - Service worker cache bumped and now includes exif worker.
+
+## [0.1.3] - 2025-09-27
+- UI polish: drag–drop area, toasts, clearer states.
+- HEIC detection: friendly prompt + skip un-decodable files.
+- Export auto-switch: “Auto (PNG if alpha)”.
+- Stability: safer worker fallback, bounds checks, better error handling.
