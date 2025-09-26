@@ -1,7 +1,7 @@
-// Dispatches work across multiple workers and builds the final ZIP in main thread
 import { makeZip } from "./zipper-worker.js";
 
-const WORKERS = Math.min(4, navigator.hardwareConcurrency || 2);
+const MAX_WORKERS = (navigator.hardwareConcurrency && navigator.hardwareConcurrency >= 8) ? 6 : 4;
+const WORKERS = Math.max(2, Math.min(MAX_WORKERS, navigator.hardwareConcurrency || 2));
 
 export async function runBatch(files, opts, {signal, onProgress}) {
   const queue = files.slice();
