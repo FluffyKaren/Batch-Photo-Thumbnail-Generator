@@ -1,4 +1,4 @@
-const CACHE = "ce-thumbgen-v0.1.7";
+const CACHE = "ce-thumbgen-v0.1.8";
 const ASSETS = [
   "./",
   "./index.html",
