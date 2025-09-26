@@ -1,10 +1,19 @@
 // Build manifest.csv and zip everything
 export async function makeZip(results) {
   const ok = results.filter(r => r.ok);
-  const manifestRows = ["original_name,thumb_name,width,height,mode"];
+  const manifestRows = ["original_name,thumb_name,width,height,mode,filesize_bytes,exif_camera,exif_datetime"];
   for (const r of ok) {
     const mode = r.thumbName.includes("__crop.") ? "crop" : "fit";
-    manifestRows.push(`${quote(r.name)},${quote(r.thumbName)},${r.width},${r.height},${mode}`);
+    manifestRows.push([
+      quote(r.name),
+      quote(r.thumbName),
+      r.width,
+      r.height,
+      mode,
+      r.sizeBytes ?? "",
+      quoteOrEmpty(r.exif_camera),
+      quoteOrEmpty(r.exif_datetime)
+    ].join(","));
   }
   const manifestCsv = manifestRows.join("\n");
   const files = [
@@ -18,61 +27,46 @@ export async function makeZip(results) {
 function quote(s) {
   return `"${String(s).replace(/"/g, '""')}"`;
 }
-
-async function createZip(entries) {
-  if ("CompressionStream" in self) {
-    // Minimal ZIP writer using CompressionStream (store-only fallback if needed)
-    // For portability, we implement a tiny ZIP with no extra fields.
-    const { blob, writer } = makeBlobWriter();
-    for (const e of entries) {
-      await writeZipEntry(writer, e.name, e.data);
-    }
-    await finishZip(writer);
-    return blob();
-  } else {
-    // Fallback: build via a lightweight JSZip-like approach (placeholder simple store)
-    const { blob, writer } = makeBlobWriter();
-    for (const e of entries) await writeZipEntry(writer, e.name, e.data);
-    await finishZip(writer);
-    return blob();
-  }
+function quoteOrEmpty(s) {
+  return s ? quote(s) : "";
 }
 
-// --- Very small ZIP (store method) ---
+async function createZip(entries) {
+  // Store method ZIP for portability. Modern browsers handle CompressionStream,
+  // but we keep simple and small here.
+  const { blob, writer } = makeBlobWriter();
+  for (const e of entries) await writeZipEntry(writer, e.name, e.data);
+  await finishZip(writer);
+  return blob();
+}
+
 function makeBlobWriter() {
   const chunks = [];
   return {
-    writer: {
-      chunks,
-      files: [],
-      central: []
-    },
+    writer: { chunks, central: [] },
     blob: () => new Blob(chunks, { type: "application/zip" })
   };
 }
 
 async function writeZipEntry(w, name, data) {
-  // Store method only (no compression) for simplicity and speed
   const encoder = new TextEncoder();
   const nameBytes = encoder.encode(name);
   const crc = crc32(data);
   const header = new DataView(new ArrayBuffer(30));
-  // Local file header signature
   header.setUint32(0, 0x04034b50, true);
-  header.setUint16(4, 20, true); // version needed
-  header.setUint16(6, 0, true); // flags
-  header.setUint16(8, 0, true); // method 0 = store
-  header.setUint16(10, 0, true); // time
-  header.setUint16(12, 0, true); // date
+  header.setUint16(4, 20, true);
+  header.setUint16(6, 0, true);
+  header.setUint16(8, 0, true);
+  header.setUint16(10, 0, true);
+  header.setUint16(12, 0, true);
   header.setUint32(14, crc, true);
   header.setUint32(18, data.byteLength, true);
   header.setUint32(22, data.byteLength, true);
   header.setUint16(26, nameBytes.byteLength, true);
-  header.setUint16(28, 0, true); // extra length
-  w.chunks.push(header, nameBytes, data);
+  header.setUint16(28, 0, true);
+  w.writer.chunks.push(header, nameBytes, data);
 
-  // Collect central directory info
-  w.central.push({ nameBytes, crc, size: data.byteLength, offset: totalSize(w.chunks) - (30 + nameBytes.byteLength + data.byteLength) });
+  w.writer.central.push({ nameBytes, crc, size: data.byteLength, offset: totalSize(w.writer.chunks) - (30 + nameBytes.byteLength + data.byteLength) });
 }
 
 async function finishZip(w) {
@@ -80,21 +74,21 @@ async function finishZip(w) {
   for (const f of w.central) {
     const hdr = new DataView(new ArrayBuffer(46));
     hdr.setUint32(0, 0x02014b50, true);
-    hdr.setUint16(4, 20, true); // version made by
-    hdr.setUint16(6, 20, true); // version needed
-    hdr.setUint16(8, 0, true);  // flags
-    hdr.setUint16(10, 0, true); // method
-    hdr.setUint16(12, 0, true); // time
-    hdr.setUint16(14, 0, true); // date
+    hdr.setUint16(4, 20, true);
+    hdr.setUint16(6, 20, true);
+    hdr.setUint16(8, 0, true);
+    hdr.setUint16(10, 0, true);
+    hdr.setUint16(12, 0, true);
+    hdr.setUint16(14, 0, true);
     hdr.setUint32(16, f.crc, true);
     hdr.setUint32(20, f.size, true);
     hdr.setUint32(24, f.size, true);
     hdr.setUint16(28, f.nameBytes.byteLength, true);
-    hdr.setUint16(30, 0, true); // extra len
-    hdr.setUint16(32, 0, true); // comment len
-    hdr.setUint16(34, 0, true); // disk #
-    hdr.setUint16(36, 0, true); // int attrs
-    hdr.setUint32(38, 0, true); // ext attrs
+    hdr.setUint16(30, 0, true);
+    hdr.setUint16(32, 0, true);
+    hdr.setUint16(34, 0, true);
+    hdr.setUint16(36, 0, true);
+    hdr.setUint32(38, 0, true);
     hdr.setUint32(42, f.offset, true);
     w.chunks.push(hdr, f.nameBytes);
   }
@@ -117,7 +111,6 @@ function totalSize(chunks) {
   return n;
 }
 
-// CRC32 (tiny)
 function crc32(buf) {
   let c = ~0 >>> 0;
   for (let i=0; i<buf.length; i++) {
