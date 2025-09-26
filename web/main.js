@@ -8,6 +8,9 @@ const countEl = document.getElementById("count");
 const statusEl = document.getElementById("status");
 const barEl = document.getElementById("bar");
 const qwrap = document.getElementById("qwrap");
+const errorList = document.getElementById("errorList");
+const errorBox = document.getElementById("errorBox");
+const errorCount = document.getElementById("errorCount");
 
 let files = [];
 let controller = null;
@@ -66,10 +69,13 @@ goBtn.addEventListener("click", async ()=>{
   stopBtn.disabled = false;
   statusEl.textContent = "Processing...";
   barEl.style.width = "0%";
+  errorList.innerHTML = "";
+  errorCount.textContent = "0";
+  errorBox.open = false;
 
   try {
     const opts = getOpts();
-    const {zipBlob, manifestCsv} = await runBatch(files, opts, {
+    const {zipBlob, manifestCsv, failures} = await runBatch(files, opts, {
       signal: controller.signal,
       onProgress: (done, total)=> {
         statusEl.textContent = `Processing ${done}/${total}`;
@@ -78,6 +84,11 @@ goBtn.addEventListener("click", async ()=>{
     });
     await saveZip(zipBlob, "thumbnails.zip");
     statusEl.textContent = `Done. ${files.length} files processed.`;
+    if (failures.length) {
+      errorCount.textContent = String(failures.length);
+      errorList.innerHTML = failures.map(f => `<li><strong>${escapeHtml(f.name)}</strong> — ${escapeHtml(f.error)}</li>`).join("");
+      errorBox.open = true;
+    }
   } catch (e) {
     if (e.name === "AbortError") {
       statusEl.textContent = "Stopped.";
@@ -94,3 +105,7 @@ goBtn.addEventListener("click", async ()=>{
 stopBtn.addEventListener("click", ()=>{
   if (controller) controller.abort();
 });
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
+}

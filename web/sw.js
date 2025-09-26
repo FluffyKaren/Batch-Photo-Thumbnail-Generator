@@ -1,4 +1,4 @@
-const CACHE = "ce-thumbgen-v0.1.0";
+const CACHE = "ce-thumbgen-v0.1.1";
 const ASSETS = [
   "./",
   "./index.html",
@@ -9,7 +9,9 @@ const ASSETS = [
   "./zipper.js",
   "./worker/dispatcher.js",
   "./worker/img-worker.js",
-  "./worker/zipper-worker.js"
+  "./worker/zipper-worker.js",
+  "./worker/exif.js",
+  "./register-sw.js"
 ];
 
 self.addEventListener("install", (e) => {

@@ -1,20 +1,18 @@
-import { getExifOrientation } from "./exif.js";
+import { parseExifMeta } from "./exif.js";
 
 self.onmessage = async (e) => {
-  const { arrayBuf, name, opts } = e.data;
+  const { arrayBuf, name, opts, sizeBytes } = e.data;
   try {
+    const meta = parseExifMeta(arrayBuf);
     const blob = new Blob([arrayBuf]);
     const bitmap = await createImageBitmap(blob);
-    // Apply EXIF orientation from original ArrayBuffer before any drawing
-    const orient = getExifOrientation(arrayBuf);
-    const oriented = await orientBitmap(bitmap, orient);
 
+    const oriented = await orientBitmap(bitmap, meta.orientation || 1);
     const { canvas, w, h } = await resizeBitmap(oriented, opts);
 
     const outType = opts.format === "png" ? "image/png" : "image/jpeg";
     const quality = opts.format === "png" ? undefined : Math.max(0.1, Math.min(1, (opts.quality || 85) / 100));
 
-    // Optional tiny sharpen to avoid mushy downsamples
     try { tinySharpen(canvas, 0.15); } catch {}
 
     const outBlob = await (canvas.convertToBlob
@@ -23,11 +21,31 @@ self.onmessage = async (e) => {
 
     const thumbName = makeName(name, w, h, opts.square ? "crop" : "fit", outType);
     const buf = await outBlob.arrayBuffer();
-    self.postMessage({ ok:true, name, thumbName, width:w, height:h, data:new Uint8Array(buf) }, [buf]);
+
+    self.postMessage({
+      ok: true,
+      name,
+      thumbName,
+      width: w,
+      height: h,
+      sizeBytes,
+      exif_camera: compactCamera(meta.make, meta.model),
+      exif_datetime: meta.dateTimeOriginal || null,
+      data: new Uint8Array(buf)
+    }, [buf]);
   } catch (err) {
     self.postMessage({ ok:false, name, error:String(err) });
   }
 };
+
+function compactCamera(make, model) {
+  if (!make && !model) return null;
+  if (make && model) {
+    // avoid repeating brand twice if model already starts with it
+    return model.toLowerCase().startsWith((make || "").toLowerCase()) ? model : `${make} ${model}`.trim();
+  }
+  return (make || model || null);
+}
 
 function makeName(original, w, h, mode, mime) {
   const base = original.replace(/\.[^.]+$/, "");
@@ -46,13 +64,13 @@ async function orientBitmap(bitmap, orientation) {
   const ctx = off.getContext("2d");
   ctx.save();
   switch (orientation) {
-    case 2: ctx.translate(cw, 0); ctx.scale(-1, 1); break;              // mirror horizontal
-    case 3: ctx.translate(cw, ch); ctx.rotate(Math.PI); break;          // rotate 180
-    case 4: ctx.translate(0, ch); ctx.scale(1, -1); break;              // mirror vertical
-    case 5: ctx.rotate(0.5*Math.PI); ctx.scale(1, -1); ctx.translate(0, -h); break; // mirror horizontal & rotate 90 CW
-    case 6: ctx.rotate(0.5*Math.PI); ctx.translate(0, -h); break;       // rotate 90 CW
-    case 7: ctx.rotate(0.5*Math.PI); ctx.translate(w, -h); ctx.scale(-1,1); break; // mirror horizontal & rotate 90 CCW
-    case 8: ctx.rotate(-0.5*Math.PI); ctx.translate(-w, 0); break;      // rotate 90 CCW
+    case 2: ctx.translate(cw, 0); ctx.scale(-1, 1); break;
+    case 3: ctx.translate(cw, ch); ctx.rotate(Math.PI); break;
+    case 4: ctx.translate(0, ch); ctx.scale(1, -1); break;
+    case 5: ctx.rotate(0.5*Math.PI); ctx.scale(1, -1); ctx.translate(0, -h); break;
+    case 6: ctx.rotate(0.5*Math.PI); ctx.translate(0, -h); break;
+    case 7: ctx.rotate(0.5*Math.PI); ctx.translate(w, -h); ctx.scale(-1,1); break;
+    case 8: ctx.rotate(-0.5*Math.PI); ctx.translate(-w, 0); break;
   }
   ctx.drawImage(bitmap, 0, 0);
   ctx.restore();
@@ -93,45 +111,38 @@ function placeWatermark(ctx, w, h, text) {
   ctx.restore();
 }
 
-// Tiny sharpen: unsharp-like pass using a 3x3 kernel, scaled by amount (0..1)
+// Tiny sharpen
 function tinySharpen(canvas, amount = 0.15) {
   const ctx = canvas.getContext("2d");
   const { width:w, height:h } = canvas;
   const img = ctx.getImageData(0,0,w,h);
   const src = img.data;
   const out = new Uint8ClampedArray(src.length);
-
   const k = [
-    0,      -1*amount, 0,
+    0, -1*amount, 0,
     -1*amount, 1+4*amount, -1*amount,
-    0,      -1*amount, 0
+    0, -1*amount, 0
   ];
-
   const idx = (x,y) => ((y*w)+x)*4;
   for (let y=1; y<h-1; y++) {
     for (let x=1; x<w-1; x++) {
       for (let c=0; c<3; c++) {
         let v=0, i=0;
         for (let ky=-1; ky<=1; ky++) {
-          for (let kx=-1; kx<=1; kx++, i++) {
-            v += src[idx(x+kx,y+ky)+c] * k[i];
-          }
+          for (let kx=-1; kx<=1; kx++, i++) v += src[idx(x+kx,y+ky)+c] * k[i];
         }
         out[idx(x,y)+c] = Math.max(0, Math.min(255, v));
       }
       out[idx(x,y)+3] = src[idx(x,y)+3];
     }
   }
-  // Copy borders without filtering
-  // Top/bottom
+  // Copy edges
   out.set(src.slice(0, w*4));
   out.set(src.slice((h-1)*w*4), (h-1)*w*4);
-  // Left/right columns
   for (let y=1; y<h-1; y++) {
     out.set(src.slice(idx(0,y), idx(0,y)+4), idx(0,y));
     out.set(src.slice(idx(w-1,y), idx(w-1,y)+4), idx(w-1,y));
   }
-
   img.data.set(out);
   ctx.putImageData(img,0,0);
 }

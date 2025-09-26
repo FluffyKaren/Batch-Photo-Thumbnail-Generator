@@ -14,7 +14,7 @@ export async function runBatch(files, opts, {signal, onProgress}) {
     while (queue.length && !signal.aborted) {
       const file = queue.shift();
       const arrayBuf = await file.arrayBuffer();
-      const res = await callWorker(w, { arrayBuf, name: file.name, opts });
+      const res = await callWorker(w, { arrayBuf, name: file.name, opts, sizeBytes: file.size });
       results.push(res);
       done += 1;
       onProgress?.(done, files.length);
@@ -26,7 +26,8 @@ export async function runBatch(files, opts, {signal, onProgress}) {
   workers.forEach(w=>w.terminate());
 
   const { zipBlob, manifestCsv } = await makeZip(results);
-  return { zipBlob, manifestCsv };
+  const failures = results.filter(r => !r.ok).map(r => ({ name: r.name, error: r.error || "Unknown error" }));
+  return { zipBlob, manifestCsv, failures };
 }
 
 function callWorker(worker, msg) {
