@@ -2,6 +2,7 @@ import { runBatch } from "./worker/dispatcher.js";
 import { saveZip, saveFilesToFolder, reOpenFolder } from "./zipper.js";
 
 const fileInput = document.getElementById("fileInput");
+const folderInput = document.getElementById("folderInput");
 const goBtn = document.getElementById("go");
 const stopBtn = document.getElementById("stop");
 const saveZipBtn = document.getElementById("saveZip");
@@ -16,12 +17,52 @@ const errorBox = document.getElementById("errorBox");
 const errorCount = document.getElementById("errorCount");
 const drop = document.getElementById("drop");
 const toasts = document.getElementById("toasts");
+const shapeSel = document.getElementById("shape");
+const padColorWrap = document.getElementById("padColorWrap");
+const padColorSel = document.getElementById("padColor");
+const padCustom = document.getElementById("padCustom");
 
 let files = [];
 let controller = null;
 let lastFilesForFolder = null;
+let palette = {};
 
 const MAX_FILES = 60;
+
+initPalette(); // async fill color menu
+
+async function initPalette() {
+  try {
+    const res = await fetch("./assets/palette.json");
+    palette = await res.json();
+  } catch {
+    palette = {};
+  }
+  // Build options (soft greys first)
+  const pairs = Object.entries(palette);
+  const pref = ["ce-bg","ce-surface","ce-border","ce-muted","ce-black"];
+  const sorted = [...pref.filter(k=>palette[k]).map(k=>[k,palette[k]]), ...pairs.filter(([k])=>!pref.includes(k))];
+  padColorSel.innerHTML = sorted.map(([k,v])=>`<option value="${v}">${k} (${v})</option>`).join("");
+  // Default to ce-bg if present, else first entry
+  if (palette["ce-bg"]) padColorSel.value = palette["ce-bg"];
+}
+
+document.getElementById("format").addEventListener("change", (e)=>{
+  qwrap.style.display = e.target.value === "jpg" ? "flex" : "none";
+});
+
+shapeSel.addEventListener("change", ()=>{
+  padColorWrap.style.display = shapeSel.value === "square-pad" ? "flex" : "none";
+});
+
+fileInput.addEventListener("change", ()=>{
+  setFiles(Array.from(fileInput.files || []));
+});
+folderInput.addEventListener("change", ()=>{
+  setFiles(Array.from(folderInput.files || []));
+});
+
+document.getElementById("wmToggle").addEventListener("change", update);
 
 // Presets
 const presetEls = Array.from(document.querySelectorAll("#presets .pill"));
@@ -33,27 +74,10 @@ presetEls.forEach(el=>{
     update();
   });
 });
-
 document.getElementById("customSize").addEventListener("input", ()=>{
   presetEls.forEach(p=>p.classList.remove("active"));
   update();
 });
-
-document.getElementById("format").addEventListener("change", (e)=>{
-  qwrap.style.display = e.target.value === "jpg" ? "flex" : "none";
-});
-
-fileInput.addEventListener("change", ()=>{
-  // If user picked a folder via webkitdirectory, treat like files list
-  setFiles(Array.from(fileInput.files || []));
-});
-
-const folderInput = document.getElementById("folderInput");
-folderInput.addEventListener("change", ()=>{
-  setFiles(Array.from(folderInput.files || []));
-});
-
-document.getElementById("wmToggle").addEventListener("change", update);
 
 // Drag–drop folder & files
 ;["dragenter","dragover"].forEach(ev=>{
@@ -69,9 +93,7 @@ drop.addEventListener("drop", async (e)=>{
   const entries = dt.items && dt.items[0] && "webkitGetAsEntry" in dt.items[0] ? Array.from(dt.items).map(i=>i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean) : null;
   if (entries && entries.length) {
     const gathered = [];
-    for (const entry of entries) {
-      await walkEntry(entry, gathered);
-    }
+    for (const entry of entries) await walkEntry(entry, gathered);
     setFiles(gathered);
   } else {
     const fl = Array.from(dt.files || []).filter(f=>f && (f.type?.startsWith("image/") || /\.(jpe?g|png|webp|heic)$/i.test(f.name)));
@@ -104,12 +126,8 @@ function setFiles(incoming) {
   saveFolderBtn.disabled = true;
   openFolderBtn.disabled = true;
 
-  if (heic.length) {
-    toast(`Some HEIC images were skipped (browser support varies). Convert first: ${heic.slice(0,3).map(f=>f.name).join(", ")}${heic.length>3?"…":""}`);
-  }
-  if (tooMany) {
-    toast(`Capped to ${MAX_FILES} files for stability. You can run another batch after this.`);
-  }
+  if (heic.length) toast(`Some HEIC images were skipped. Convert first: ${heic.slice(0,3).map(f=>f.name).join(", ")}${heic.length>3?"…":""}`);
+  if (tooMany) toast(`Capped to ${MAX_FILES} files. Run another batch after this.`);
 }
 
 function normalizeFiles(arr) {
@@ -144,9 +162,13 @@ function getSize() {
 }
 
 function getOpts() {
+  // resolve pad color: custom hex takes precedence; else selected; else fallback to ce-bg or white
+  let padColor = (padCustom.value || "").trim();
+  if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(padColor)) padColor = padColorSel.value || palette["ce-bg"] || "#ffffff";
   return {
     size: getSize(),
-    square: document.getElementById("square").checked,
+    shape: shapeSel.value, // 'fit' | 'square-crop' | 'square-pad'
+    padColor,
     format: document.getElementById("format").value, // 'auto'|'jpg'|'png'
     quality: parseInt(document.getElementById("quality").value, 10),
     watermark: document.getElementById("wmToggle").checked ? (document.getElementById("wmText").value || "©") : null
@@ -179,7 +201,6 @@ goBtn.addEventListener("click", async ()=>{
       }
     });
 
-    // Enable save buttons with fresh outputs
     lastFilesForFolder = filesForFolder;
     saveZipBtn.disabled = false;
     saveFolderBtn.disabled = !("showDirectoryPicker" in window);
@@ -196,7 +217,6 @@ goBtn.addEventListener("click", async ()=>{
       toast("All images processed successfully.");
     }
 
-    // Default: still offer ZIP immediately on click
     saveZipBtn.onclick = async ()=> {
       await saveZip(zipBlob, "thumbnails.zip");
       toast("ZIP downloaded.");
@@ -230,17 +250,13 @@ stopBtn.addEventListener("click", ()=>{
 });
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  return String(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;','\'':'&#39;'}[m]));
 }
-
 function toast(msg, ms=3500) {
   const el = document.createElement("div");
   el.className = "toast";
   el.textContent = msg;
   toasts.appendChild(el);
-  setTimeout(()=> {
-    el.style.opacity = "0";
-    el.style.transform = "translateY(-6px)";
-  }, ms);
+  setTimeout(()=> { el.style.opacity = "0"; el.style.transform = "translateY(-6px)"; }, ms);
   setTimeout(()=> el.remove(), ms+400);
 }

@@ -3,7 +3,7 @@ export async function makeZip(results) {
   const ok = results.filter(r => r.ok);
   const manifestRows = ["original_name,thumb_name,width,height,mode,filesize_bytes,exif_camera,exif_datetime"];
   for (const r of ok) {
-    const mode = r.thumbName.includes("__crop.") ? "crop" : "fit";
+    const mode = r.thumbName.includes("__crop.") ? "crop" : (r.thumbName.includes("__pad.") ? "pad" : "fit");
     manifestRows.push([
       quote(r.name),
       quote(r.thumbName),

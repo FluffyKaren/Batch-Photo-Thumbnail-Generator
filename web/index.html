@@ -71,7 +71,14 @@
       <details>
         <summary>Advanced</summary>
         <div class="row" style="margin-top:8px">
-          <label><input id="square" type="checkbox"> Make square (center-crop)</label>
+          <label>Shape
+            <select id="shape">
+              <option value="fit" selected>Original aspect</option>
+              <option value="square-crop">Square — crop</option>
+              <option value="square-pad">Square — pad</option>
+            </select>
+          </label>
+
           <label>Format
             <select id="format">
               <option value="auto" selected>Auto (PNG if alpha)</option>
@@ -79,11 +86,19 @@
               <option value="png">PNG</option>
             </select>
           </label>
+
           <label id="qwrap">Quality
             <input id="quality" type="number" min="10" max="100" value="85">
           </label>
+
           <label><input id="wmToggle" type="checkbox"> Watermark</label>
           <input id="wmText" type="text" placeholder="Watermark text" style="flex:1; min-width:180px">
+
+          <label id="padColorWrap" style="display:none">
+            Pad color
+            <select id="padColor"></select>
+            <input id="padCustom" type="text" placeholder="#HEX" style="width:100px">
+          </label>
         </div>
       </details>
 

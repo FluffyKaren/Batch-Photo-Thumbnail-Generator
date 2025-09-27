@@ -35,3 +35,8 @@ Added local dev guide and GitHub Pages workflow.
 - Added empty data-URL favicon to avoid 404.
 - Cleared manifest icons array to prevent missing asset fetch.
 - Bumped service worker cache for a clean reload.
+
+## [0.1.9] - 2025-09-27
+- Added "Square – Pad" mode with selectable background color.
+- Color options sourced from palette.json; optional custom hex.
+- Service worker cache bumped.
